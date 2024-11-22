@@ -9,7 +9,7 @@ async function authenticateDatabase() {
     }
 }
 
-async function syncDatabase(options = { alter: true }) {
+async function syncDatabase(options = { alter: process.env.NODE_ENV ==='development' }) {
     try {
         await sequelize.sync(options);
         console.log('Modelos sincronizados com o banco de dados.');
