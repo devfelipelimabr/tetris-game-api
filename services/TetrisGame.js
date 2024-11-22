@@ -1,5 +1,8 @@
 module.exports = class TetrisGame {
     constructor() {
+        this.level = 1;
+        this.baseInterval = 1000;
+        this.levelTimer = null;
         this.width = 10;
         this.height = 20;
         this.board = this.createEmptyBoard();
@@ -58,9 +61,22 @@ module.exports = class TetrisGame {
     startGame(ws) {
         this.gameOver = false;
         this.score = 0;
+        this.level = 1;
         this.board = this.createEmptyBoard();
         this.spawnPiece();
         this.startDescending(ws);
+        this.startLevelTimer(ws);
+    }
+
+    startLevelTimer(ws) {
+        if (this.levelTimer) {
+            clearInterval(this.levelTimer);
+        }
+        this.levelTimer = setInterval(() => {
+            if (!this.gameOver) {
+                this.incrementLevel(ws);
+            }
+        }, 5 * 60 * 1000); // 5 minutos
     }
 
     startDescending(ws) {
@@ -71,6 +87,7 @@ module.exports = class TetrisGame {
         this.descendInterval = setInterval(() => {
             if (this.gameOver) {
                 clearInterval(this.descendInterval);
+                clearInterval(this.levelTimer); // Para o timer de nível ao fim do jogo
                 ws.send(JSON.stringify({
                     type: 'GAME_OVER',
                     gameState: this.getGameState()
@@ -84,7 +101,7 @@ module.exports = class TetrisGame {
                 type: 'GAME_UPDATE',
                 gameState: this.getGameState()
             }));
-        }, 1000);
+        }, this.getCurrentInterval());
     }
 
     spawnPiece() {
@@ -210,6 +227,7 @@ module.exports = class TetrisGame {
         return {
             board: this.getBoardWithCurrentPiece(),
             score: this.score,
+            level: this.level,
             gameOver: this.gameOver,
             nextPiece: this.nextPiece
         };
@@ -235,5 +253,20 @@ module.exports = class TetrisGame {
         }
 
         return boardWithCurrentPiece;
+    }
+
+    getCurrentInterval() {
+        return this.baseInterval * Math.pow(0.9, this.level - 1);
+    }
+
+    incrementLevel(ws) {
+        this.level++;
+        clearInterval(this.descendInterval); // Para o intervalo atual
+        this.startDescending(ws); // Reinicia o intervalo com nova velocidade
+        ws.send(JSON.stringify({
+            type: 'LEVEL_UP',
+            level: this.level,
+            gameState: this.getGameState()
+        }));
     }
 }
