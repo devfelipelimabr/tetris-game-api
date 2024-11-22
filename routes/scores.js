@@ -9,8 +9,6 @@ router.post('/save', authenticateToken, async (req, res) => {
     try {
         const { score, level, gameId } = req.body;
 
-        console.log(req.body);
-
         if (!score || !level || !gameId) {
             return res.status(400).json({ message: 'Score, gameId and level are required.' });
         }
