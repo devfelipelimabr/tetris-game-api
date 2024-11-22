@@ -1,7 +1,3 @@
-Aqui está a documentação atualizada para incluir as novas funcionalidades, como geração única de IDs de jogo, proteção contra múltiplos salvamentos de pontuação, e sistema de níveis dinâmico.
-
----
-
 # **Tetris Game API**
 
 Esta API fornece a lógica e comunicação para um jogo de Tetris multiplayer em tempo real, usando WebSockets para interação cliente-servidor. A API suporta funcionalidades como movimentação de peças, rotação, sistema de níveis com velocidade dinâmica e atualizações em tempo real para o cliente.
