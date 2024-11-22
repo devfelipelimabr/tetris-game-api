@@ -1,3 +1,7 @@
+Aqui está a documentação atualizada para incluir as novas funcionalidades, como geração única de IDs de jogo, proteção contra múltiplos salvamentos de pontuação, e sistema de níveis dinâmico.
+
+---
+
 # **Tetris Game API**
 
 Esta API fornece a lógica e comunicação para um jogo de Tetris multiplayer em tempo real, usando WebSockets para interação cliente-servidor. A API suporta funcionalidades como movimentação de peças, rotação, sistema de níveis com velocidade dinâmica e atualizações em tempo real para o cliente.
@@ -21,9 +25,11 @@ Esta API fornece a lógica e comunicação para um jogo de Tetris multiplayer em
 ## **Funcionalidades**
 
 - Comunicação em tempo real usando WebSockets.
+- **Geração única de `gameId`** com UUID para cada sessão de jogo.
 - Sistema de níveis, onde a velocidade de descida das peças aumenta 10% a cada 5 minutos.
 - Movimentação das peças (esquerda, direita, baixo) e rotação.
 - Gerenciamento de múltiplos jogos simultaneamente.
+- **Proteção contra múltiplos salvamentos de pontuação** no evento "Game Over".
 - Mensagens claras de inicialização, atualização de estado e finalização de jogo.
 - Estrutura modular e escalável para expansão futura.
 
@@ -35,6 +41,7 @@ Esta API fornece a lógica e comunicação para um jogo de Tetris multiplayer em
 - **Express.js**: Gerenciamento do servidor HTTP.
 - **WebSocket**: Comunicação em tempo real.
 - **jQuery**: Manipulação do frontend.
+- **UUID**: Geração de identificadores únicos para cada jogo.
 - **HTML/CSS**: Interface do jogo.
 
 ---
@@ -88,7 +95,7 @@ Esta API fornece a lógica e comunicação para um jogo de Tetris multiplayer em
 
 ### **Conexão**
 
-Ao conectar, o servidor cria uma nova instância do jogo para o cliente.
+Ao conectar, o servidor cria uma nova instância do jogo para o cliente. Cada jogo recebe um identificador único (`gameId`).
 
 ---
 
@@ -96,22 +103,22 @@ Ao conectar, o servidor cria uma nova instância do jogo para o cliente.
 
 ### **Tipos de Mensagem do Cliente**
 
-| Tipo         | Descrição                        |
-|--------------|----------------------------------|
+| Tipo         | Descrição                          |
+|--------------|------------------------------------|
 | `MOVE_LEFT`  | Move a peça atual para a esquerda. |
-| `MOVE_RIGHT` | Move a peça atual para a direita. |
-| `MOVE_DOWN`  | Move a peça atual para baixo.     |
-| `ROTATE`     | Rotaciona a peça atual.          |
-| `NEW_GAME`   | Reinicia o jogo atual.           |
+| `MOVE_RIGHT` | Move a peça atual para a direita.  |
+| `MOVE_DOWN`  | Move a peça atual para baixo.      |
+| `ROTATE`     | Rotaciona a peça atual.           |
+| `NEW_GAME`   | Reinicia o jogo atual.            |
 
 ### **Tipos de Mensagem do Servidor**
 
-| Tipo            | Descrição                                                    |
-|------------------|------------------------------------------------------------|
+| Tipo             | Descrição                                                     |
+|-------------------|-------------------------------------------------------------|
 | `GAME_INITIALIZED` | Enviado ao cliente ao iniciar um novo jogo, incluindo o ID do jogo e o estado inicial. |
-| `GAME_UPDATE`      | Atualiza o estado do jogo em tempo real, incluindo tabuleiro, pontuação e nível. |
-| `GAME_OVER`        | Enviado quando o jogo termina devido a uma colisão.         |
-| `LEVEL_UP`         | Notifica o cliente que o nível foi incrementado.            |
+| `GAME_UPDATE`      | Atualiza o estado do jogo em tempo real, incluindo tabuleiro, pontuação e nível.        |
+| `GAME_OVER`        | Enviado quando o jogo termina devido a uma colisão.          |
+| `LEVEL_UP`         | Notifica o cliente que o nível foi incrementado.             |
 
 ### **Estrutura da Mensagem do Estado do Jogo**
 
@@ -119,6 +126,7 @@ Ao conectar, o servidor cria uma nova instância do jogo para o cliente.
 {
   "type": "GAME_UPDATE",
   "gameState": {
+    "gameId": "0a0c690e-d42c-4a3d-965c-3f40e17943ca1732253829847",
     "board": [[null, null, "red", ...], ...],
     "score": 150,
     "level": 3,
@@ -131,6 +139,19 @@ Ao conectar, o servidor cria uma nova instância do jogo para o cliente.
   }
 }
 ```
+
+---
+
+## **Novas Funcionalidades**
+
+1. **Geração única de IDs**:
+   - Cada jogo recebe um ID único gerado com UUID para evitar colisões, especialmente em sistemas distribuídos.
+
+2. **Proteção contra múltiplos salvamentos de pontuação**:
+   - Ao final do jogo (`GAME_OVER`), o servidor salva a pontuação apenas uma vez para cada sessão.
+
+3. **Sistema de níveis dinâmico**:
+   - O nível do jogador aumenta automaticamente a cada 5 minutos, reduzindo o intervalo de descida das peças.
 
 ---
 
