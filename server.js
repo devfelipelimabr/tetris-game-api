@@ -22,7 +22,7 @@ const wss = new WebSocket.Server({ server });
 
 // Configuração do CORS
 app.use(cors({
-    origin: process.env.CLIENT_URL || '*',
+    origin: process.env.NODE_ENV !== 'development' ? process.env.CLIENT_URL : '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Custom-Header'],
 }));
