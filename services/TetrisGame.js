@@ -205,16 +205,12 @@ module.exports = class TetrisGame {
     }
 
     clearLines() {
-        let linesCleared = 0;
-        for (let y = this.height - 1; y >= 0; y--) {
-            if (this.board[y].every(cell => cell !== null)) {
-                this.board.splice(y, 1);
-                this.board.unshift(Array(this.width).fill(null));
-                linesCleared++;
-                y++;
-            }
+        const newBoard = this.board.filter(row => !row.every(cell => cell !== null));
+        const linesCleared = this.height - newBoard.length;
+        while (newBoard.length < this.height) {
+            newBoard.unshift(Array(this.width).fill(null));
         }
-
+        this.board = newBoard;
         this.updateScore(linesCleared);
     }
 
