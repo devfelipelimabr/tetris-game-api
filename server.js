@@ -13,7 +13,10 @@ const TetrisGame = require("./services/TetrisGame");
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({
+    server,
+    maxPayload: 1024 * 1024, // Max 1MB
+});
 
 (async () => {
     await authenticateDatabase();
