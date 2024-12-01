@@ -1,0 +1,14 @@
+# Teste para verificar a estabilidade
+config:
+  target: "ws://localhost:3000"
+  phases:
+    - duration: 60
+      arrivalRate: 50  # 50 conexões por segundo
+scenarios:
+  - engine: "ws"
+    flow:
+      - send: { type: "NEW_GAME" }
+      - send: { type: "MOVE_LEFT" }
+      - send: { type: "ROTATE" }
+      - send: { type: "MOVE_DOWN" }
+      - think: 1  # Esperar 1 segundo antes de enviar outra mensagem

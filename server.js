@@ -13,7 +13,10 @@ const TetrisGame = require("./services/TetrisGame");
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({
+    server,
+    maxPayload: 1024 * 1024, // Max 1MB
+});
 
 (async () => {
     await authenticateDatabase();
@@ -65,36 +68,41 @@ wss.on('connection', (ws, request) => {
         }));
 
         ws.on('message', (message) => {
-            const data = JSON.parse(message);
-            const game = games.get(data.gameId);
+            try {
+                const data = JSON.parse(message);
+                const game = games.get(data.gameId);
 
-            if (!game) return;
+                if (!game) return;
 
-            switch (data.type) {
-                case 'MOVE_LEFT':
-                    game.movepiece('left');
-                    break;
-                case 'MOVE_RIGHT':
-                    game.movepiece('right');
-                    break;
-                case 'MOVE_DOWN':
-                    game.movepiece('down');
-                    break;
-                case 'ROTATE':
-                    game.rotatePiece();
-                    break;
-                case 'NEW_GAME':
-                    game.startGame(ws);
-                    break;
+                switch (data.type) {
+                    case 'MOVE_LEFT':
+                        game.movepiece('left');
+                        break;
+                    case 'MOVE_RIGHT':
+                        game.movepiece('right');
+                        break;
+                    case 'MOVE_DOWN':
+                        game.movepiece('down');
+                        break;
+                    case 'ROTATE':
+                        game.rotatePiece();
+                        break;
+                    case 'NEW_GAME':
+                        game.startGame(ws);
+                        break;
+                }
+
+                const response = {
+                    type: game.gameOver ? 'GAME_OVER' : 'GAME_UPDATE',
+                    gameState: game.getGameState()
+                };
+
+                ws.send(JSON.stringify(response));
+            } catch (error) {
+                ws.send(JSON.stringify({ type: 'ERROR', message: 'Invalid message format' }));
             }
-
-            const response = {
-                type: game.gameOver ? 'GAME_OVER' : 'GAME_UPDATE',
-                gameState: game.getGameState()
-            };
-
-            ws.send(JSON.stringify(response));
-        });
+        }
+        );
 
         ws.on('close', () => {
             if (games.has(gameId)) {
