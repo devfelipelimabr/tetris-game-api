@@ -8,6 +8,9 @@ const { v4: uuidv4 } = require('uuid');
 
 const authRoutes = require('./routes/auth');
 const scoresRoutes = require('./routes/scores');
+
+const { Score } = require('./models');
+
 const { authenticateDatabase, syncDatabase } = require('./config/sync_db');
 const TetrisGame = require('./services/TetrisGame');
 
@@ -23,11 +26,12 @@ const wss = new WebSocket.Server({
         await authenticateDatabase();
         await syncDatabase();
     } catch (error) {
+        console.error('Database initialization error:', error);
         process.exit(1);
     }
 })();
 
-// Configuração do CORS
+// CORS Configuration
 app.use(
     cors({
         origin: process.env.NODE_ENV !== 'development' ? process.env.CLIENT_URL : '*',
@@ -36,16 +40,20 @@ app.use(
     })
 );
 
-// Middleware para parsing de JSON
+// Middleware for JSON parsing
 app.use(express.json());
 
-// Rotas
+// Routes
 app.use('/auth', authRoutes);
 app.use('/scores', scoresRoutes);
 
+// Game management
 const games = new Map();
 
-// Middleware de validação de token
+// Generate unique game ID
+const getNewGameId = () => `${uuidv4()}-${Date.now()}`;
+
+// Token validation middleware
 const validateWebSocketToken = (token) => {
     if (!token) {
         throw new Error('Authentication required');
@@ -53,7 +61,7 @@ const validateWebSocketToken = (token) => {
     return jwt.verify(token, process.env.JWT_SECRET);
 };
 
-// Função central de conexão WebSocket
+// Central WebSocket connection handler
 const handleWebSocketConnection = (ws, request) => {
     try {
         const url = new URL(request.url, `ws://${request.headers.host}`);
@@ -61,32 +69,40 @@ const handleWebSocketConnection = (ws, request) => {
         const decoded = validateWebSocketToken(token);
         ws.userId = decoded.id;
 
-        const gameId = `${uuidv4()}-${Date.now()}`;
-        const game = new TetrisGame();
-        games.set(gameId, game);
+        // Initialize first game
+        initializeNewGame(ws);
 
-        game.startGame(ws);
-
-        ws.send(
-            JSON.stringify({
-                type: 'GAME_INITIALIZED',
-                gameId,
-                gameState: game.getGameState(),
-            })
-        );
-
+        // Set up message and close handlers
         ws.on('message', (message) => handleWebSocketMessage(ws, message));
-        ws.on('close', () => handleWebSocketClose(gameId));
+        ws.on('close', () => handleWebSocketClose(ws.gameId));
     } catch (error) {
         ws.close(1008, error.message);
     }
 };
 
-// Função para lidar com mensagens WebSocket
-const handleWebSocketMessage = (ws, message) => {
+// Initialize a new game for a WebSocket connection
+const initializeNewGame = (ws) => {
+    const gameId = getNewGameId();
+    const game = new TetrisGame();
+    games.set(gameId, game);
+    ws.gameId = gameId;  // Attach gameId to WebSocket
+
+    game.startGame(ws);
+
+    ws.send(
+        JSON.stringify({
+            type: 'GAME_INITIALIZED',
+            gameId,
+            gameState: game.getGameState(),
+        })
+    );
+};
+
+// Handle WebSocket messages
+const handleWebSocketMessage = async (ws, message) => {
     try {
         const data = JSON.parse(message);
-        const game = games.get(data.gameId);
+        const game = games.get(data.gameId || ws.gameId);
 
         if (!game) {
             ws.send(
@@ -112,8 +128,8 @@ const handleWebSocketMessage = (ws, message) => {
                 game.rotatePiece();
                 break;
             case 'NEW_GAME':
-                game.startGame(ws);
-                break;
+                initializeNewGame(ws);
+                return;
             default:
                 ws.send(
                     JSON.stringify({
@@ -124,12 +140,35 @@ const handleWebSocketMessage = (ws, message) => {
                 return;
         }
 
+        console.log('gameId: ' + (data.gameId || ws.gameId),
+            'Score: ' + game.getGameState().score,
+            'Level: ' + game.getGameState().level,
+            'userId: ' + ws.userId,
+            'GameOver: ' + game.gameOver)
+
         ws.send(
             JSON.stringify({
                 type: game.gameOver ? 'GAME_OVER' : 'GAME_UPDATE',
                 gameState: game.getGameState(),
             })
         );
+
+        if (game.gameOver) {
+            const scoreSave = await saveUserScore(
+                data.gameId || ws.gameId,
+                game.getGameState().score,
+                game.getGameState().level,
+                ws.userId);
+
+            if (scoreSave.error) {
+                console.error(scoreSave.error);
+            } else {
+                console.info(scoreSave.message);
+            }
+
+            ws.on('close', () => handleWebSocketClose(ws.gameId));
+        }
+
     } catch (error) {
         ws.send(
             JSON.stringify({
@@ -140,7 +179,7 @@ const handleWebSocketMessage = (ws, message) => {
     }
 };
 
-// Função para lidar com o fechamento do WebSocket
+// Handle WebSocket closure
 const handleWebSocketClose = (gameId) => {
     const game = games.get(gameId);
     if (game?.descendInterval) {
@@ -149,11 +188,39 @@ const handleWebSocketClose = (gameId) => {
     games.delete(gameId);
 };
 
-// Configuração do WebSocket
+// Save score to database
+const saveUserScore = async (gameId, score, level, userId) => {
+    try {
+        if (!score || !level || !gameId) {
+            return ({ error: 'Score, gameId and level are required.' });
+        }
+
+        const scoreExists = await Score.findOne({ where: { gameId } });
+
+        if (scoreExists) {
+            return ({ error: 'This score already exists' });
+        }
+
+        const newScore = await Score.create({
+            score: score,
+            gameId: gameId,
+            level: level,
+            UserId: userId
+        });
+
+        return ({ message: 'Score saved successfully.', score: newScore });
+    } catch (error) {
+        return ({ error: error.message });
+    }
+};
+
+// WebSocket server configuration
 wss.on('connection', handleWebSocketConnection);
 
-// Porta do Servidor
+// Server port
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Tetris server running on port ${PORT}`);
 });
+
+module.exports = { server, wss };  // Export for potential testing
