@@ -8,26 +8,44 @@ const { v4: uuidv4 } = require('uuid');
 
 const authRoutes = require('./routes/auth');
 const scoresRoutes = require('./routes/scores');
+
+const { Score } = require('./models');
 const { authenticateDatabase, syncDatabase } = require('./config/sync_db');
+
 const TetrisGame = require('./services/TetrisGame');
+const TetrisTimeAttackGame = require('./services/TetrisTimeAttackGame');
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({
-    server,
-    maxPayload: 1024 * 1024, // Max 1MB
-});
+const wss = new WebSocket.Server({ server });
+
+const games = new Map();
+const gameModes = {
+    CLASSIC: {
+        name: 'Classic',
+        description: 'A classic endless game mode.',
+    },
+    TIME_ATTACK: {
+        name: 'Time Attack',
+        description: 'Score as much as possible within a time limit.',
+    },
+};
+const gameSelect = {
+    CLASSIC: TetrisGame,
+    TIME_ATTACK: TetrisTimeAttackGame,
+};
 
 (async () => {
     try {
         await authenticateDatabase();
         await syncDatabase();
     } catch (error) {
+        console.error('Database initialization error:', error);
         process.exit(1);
     }
 })();
 
-// Configuração do CORS
+// Middleware
 app.use(
     cors({
         origin: process.env.NODE_ENV !== 'development' ? process.env.CLIENT_URL : '*',
@@ -35,92 +53,96 @@ app.use(
         allowedHeaders: ['Content-Type', 'Authorization', 'X-Custom-Header'],
     })
 );
-
-// Middleware para parsing de JSON
 app.use(express.json());
 
-// Rotas
+// Routes
 app.use('/auth', authRoutes);
 app.use('/scores', scoresRoutes);
 
-const games = new Map();
+// Route: Get available game modes
+app.get('/game-modes', (req, res) => {
+    res.json({ modes: Object.keys(gameModes), details: gameModes });
+});
 
-// Middleware de validação de token
+// Generate unique game ID
+const getNewGameId = () => `${uuidv4()}-${Date.now()}`;
+
+// Token validation
 const validateWebSocketToken = (token) => {
-    if (!token) {
-        throw new Error('Authentication required');
-    }
+    if (!token) throw new Error('Authentication required');
     return jwt.verify(token, process.env.JWT_SECRET);
 };
 
-// Função central de conexão WebSocket
-const handleWebSocketConnection = (ws, request) => {
+// WebSocket connection
+wss.on('connection', (ws, request) => {
     try {
         const url = new URL(request.url, `ws://${request.headers.host}`);
         const token = url.searchParams.get('token');
         const decoded = validateWebSocketToken(token);
+        ws.mode = url.searchParams.get('mode') || 'CLASSIC';
+
+        if (!gameModes[ws.mode]) {
+            throw new Error('Invalid game mode');
+        }
+
         ws.userId = decoded.id;
-
-        const gameId = `${uuidv4()}-${Date.now()}`;
-        const game = new TetrisGame();
-        games.set(gameId, game);
-
-        game.startGame(ws);
-
-        ws.send(
-            JSON.stringify({
-                type: 'GAME_INITIALIZED',
-                gameId,
-                gameState: game.getGameState(),
-            })
-        );
+        initializeNewGame(ws);
 
         ws.on('message', (message) => handleWebSocketMessage(ws, message));
-        ws.on('close', () => handleWebSocketClose(gameId));
+        ws.on('close', () => handleWebSocketClose(ws.gameId));
     } catch (error) {
         ws.close(1008, error.message);
     }
+});
+
+// Initialize a new game
+const initializeNewGame = (ws) => {
+    const gameId = getNewGameId();
+    const GameClass = gameSelect[ws.mode];
+    const game = new GameClass();
+    games.set(gameId, game);
+    ws.gameId = gameId;
+
+    game.startGame(ws);
+
+    ws.send(
+        JSON.stringify({
+            type: 'GAME_INITIALIZED',
+            gameId,
+            gameState: game.getGameState(),
+        })
+    );
 };
 
-// Função para lidar com mensagens WebSocket
-const handleWebSocketMessage = (ws, message) => {
+// Handle WebSocket messages
+const handleWebSocketMessage = async (ws, message) => {
     try {
         const data = JSON.parse(message);
-        const game = games.get(data.gameId);
+        const game = games.get(data.gameId || ws.gameId);
 
         if (!game) {
-            ws.send(
-                JSON.stringify({
-                    type: 'ERROR',
-                    message: 'Game not found',
-                })
-            );
+            ws.send(JSON.stringify({ type: 'ERROR', message: 'Game not found' }));
             return;
         }
 
         switch (data.type) {
             case 'MOVE_LEFT':
-                game.movepiece('left');
+                game.movePiece('left');
                 break;
             case 'MOVE_RIGHT':
-                game.movepiece('right');
+                game.movePiece('right');
                 break;
             case 'MOVE_DOWN':
-                game.movepiece('down');
+                game.movePiece('down');
                 break;
             case 'ROTATE':
                 game.rotatePiece();
                 break;
             case 'NEW_GAME':
-                game.startGame(ws);
-                break;
+                initializeNewGame(ws);
+                return;
             default:
-                ws.send(
-                    JSON.stringify({
-                        type: 'ERROR',
-                        message: 'Unknown command',
-                    })
-                );
+                ws.send(JSON.stringify({ type: 'ERROR', message: 'Unknown command' }));
                 return;
         }
 
@@ -130,30 +152,45 @@ const handleWebSocketMessage = (ws, message) => {
                 gameState: game.getGameState(),
             })
         );
+
+        if (game.gameOver) {
+            await saveUserScore(
+                data.gameId || ws.gameId,
+                game.getGameState().score,
+                game.getGameState().level,
+                ws.userId
+            );
+        }
     } catch (error) {
-        ws.send(
-            JSON.stringify({
-                type: 'ERROR',
-                message: 'Invalid message format',
-            })
-        );
+        ws.send(JSON.stringify({ type: 'ERROR', message: 'Invalid message format' }));
     }
 };
 
-// Função para lidar com o fechamento do WebSocket
+// Handle WebSocket close
 const handleWebSocketClose = (gameId) => {
     const game = games.get(gameId);
-    if (game?.descendInterval) {
-        clearInterval(game.descendInterval);
-    }
+    if (game?.descendInterval) clearInterval(game.descendInterval);
     games.delete(gameId);
 };
 
-// Configuração do WebSocket
-wss.on('connection', handleWebSocketConnection);
+// Save score
+const saveUserScore = async (gameId, score, level, userId) => {
+    try {
+        if (!score || !level || !gameId) throw new Error('Score, gameId, and level are required');
 
-// Porta do Servidor
+        const existingScore = await Score.findOne({ where: { gameId } });
+        if (existingScore) throw new Error('This score already exists');
+
+        const newScore = await Score.create({ score, gameId, level, UserId: userId });
+        return { message: 'Score saved successfully', score: newScore };
+    } catch (error) {
+        console.error('Error saving score:', error.message);
+        return { error: error.message };
+    }
+};
+
+// Start server
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Tetris server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+module.exports = { server, wss };
