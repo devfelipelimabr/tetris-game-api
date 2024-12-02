@@ -95,7 +95,7 @@ module.exports = class TetrisGame {
                 return;
             }
 
-            this.movepiece('down');
+            this.movePiece('down');
 
             ws.send(JSON.stringify({
                 type: 'GAME_UPDATE',
@@ -125,7 +125,7 @@ module.exports = class TetrisGame {
         return this.pieces[Math.floor(Math.random() * this.pieces.length)];
     }
 
-    movepiece(direction) {
+    movePiece(direction) {
         if (this.gameOver) return;
 
         switch (direction) {
